@@ -53,6 +53,7 @@
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 void CAN_Filter_Config(void);
+void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan);
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim);
 
 /* USER CODE END PFP */
@@ -69,6 +70,7 @@ uint8_t CanTxBuffer[8]; //Buffer escritura
 uint8_t CanRxBuffer[8]; //Buffer lectura
 uint32_t CanMailBox; //Para enviar
 uint8_t flag_rx = 0, tx_complete = 0, tx_retry = 0; // banderas
+uint8_t flag_carga_completa = 0;
 uint8_t counterTime = 5; // contador tiempo
 
 
@@ -112,8 +114,8 @@ int main(void)
   HAL_CAN_ActivateNotification(&hcan, CAN_IT_RX_FIFO0_MSG_PENDING);
   HAL_TIM_Base_Start_IT(&htim2);
 
-
-  uint8_t CanTxBuffer[8] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
+  uint16_t voltaje_bateria = 0;
+  uint8_t CanTxBuffer[8] = {0x02, 0x48, 0x01, 0x2C, 0x00, 0x00, 0x00, 0x00};
   //CanTxBuffer = data;
   //uint32_t txMailbox;
 
@@ -131,12 +133,28 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  if(!led_timer){
+	  if(!led_timer && !flag_carga_completa){
 		  led_timer = 1000;
 		  HAL_GPIO_TogglePin(ONBOARD_LED_GPIO_Port, ONBOARD_LED_Pin);
+		  //HAL_GPIO_TogglePin(External_LED_RED_GPIO_Port, External_LED_RED_Pin);// Asume que el LED está conectado al pin GPIOB_PIN_0
+		  //HAL_GPIO_TogglePin(External_LED_GREEN_GPIO_Port, External_LED_GREEN_Pin);// Asume que el LED está conectado al pin GPIOB_PIN_0
 		  if (HAL_CAN_AddTxMessage(&hcan, &txHeader, CanTxBuffer, &CanMailBox) != HAL_OK) {
+			  //HAL_GPIO_TogglePin(External_LED_RED_GPIO_Port, External_LED_RED_Pin);
 		          // Error al enviar el mensaje
 		      }
+	  }
+	  if(flag_rx){
+		  if (rxHeader.IDE == CAN_ID_EXT && rxHeader.ExtId == 0x18FF50E5) {
+			  // Cambiar el estado del LED
+			  voltaje_bateria |= CanRxBuffer[0]<<8;
+			  voltaje_bateria |= CanRxBuffer[1];
+			  if(voltaje_bateria == 534){
+				  HAL_GPIO_TogglePin(External_LED_RED_GPIO_Port, External_LED_RED_Pin);// Asume que el LED está conectado al pin GPIOB_PIN_0
+				  flag_carga_completa = 1;
+			  }
+
+		  }
+		  flag_rx=0;
 	  }
   }
   /* USER CODE END 3 */
@@ -182,6 +200,13 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
+{
+	if(HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &rxHeader, CanRxBuffer) == HAL_OK){
+		flag_rx = 1;
+	}
+}
 
 void CAN_Filter_Config(void) //Funcion para filtro can
 {
